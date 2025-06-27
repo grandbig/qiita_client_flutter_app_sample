@@ -38,8 +38,8 @@ class QiitaItemsNotifier extends _$QiitaItemsNotifier {
   }
 
   Future<List<QiitaItem>> _fetch({int page = 1}) async {
-    final usecase = ref.read(qiitaItemsUseCaseProvider);
-    return usecase(page: page);
+    final useCase = ref.read(qiitaItemsUseCaseProvider);
+    return useCase(page: page);
   }
 
   Future<void> refresh() async {
