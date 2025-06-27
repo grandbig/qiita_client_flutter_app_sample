@@ -59,43 +59,46 @@ final qiitaItemRepositoryProvider =
 @Deprecated('Will be removed in 3.0. Use Ref instead')
 // ignore: unused_element
 typedef QiitaItemRepositoryRef = AutoDisposeProviderRef<QiitaItemRepository>;
-String _$qiitaItemsUseCaseHash() => r'44c124da0b0dbf94dc108cf167e2a1d44e1b647e';
+String _$qiitaItemsPaginationUseCaseHash() =>
+    r'6016530003c65a3d040c3496fdffed323722a533';
 
-/// See also [qiitaItemsUseCase].
-@ProviderFor(qiitaItemsUseCase)
-final qiitaItemsUseCaseProvider =
-    AutoDisposeProvider<QiitaItemsUseCase>.internal(
-      qiitaItemsUseCase,
-      name: r'qiitaItemsUseCaseProvider',
+/// See also [qiitaItemsPaginationUseCase].
+@ProviderFor(qiitaItemsPaginationUseCase)
+final qiitaItemsPaginationUseCaseProvider =
+    AutoDisposeProvider<QiitaItemsPaginationUseCase>.internal(
+      qiitaItemsPaginationUseCase,
+      name: r'qiitaItemsPaginationUseCaseProvider',
       debugGetCreateSourceHash: const bool.fromEnvironment('dart.vm.product')
           ? null
-          : _$qiitaItemsUseCaseHash,
+          : _$qiitaItemsPaginationUseCaseHash,
       dependencies: null,
       allTransitiveDependencies: null,
     );
 
 @Deprecated('Will be removed in 3.0. Use Ref instead')
 // ignore: unused_element
-typedef QiitaItemsUseCaseRef = AutoDisposeProviderRef<QiitaItemsUseCase>;
-String _$qiitaItemsNotifierHash() =>
-    r'9c32483c4d78d1644008c17b8902d1227bf78cec';
+typedef QiitaItemsPaginationUseCaseRef =
+    AutoDisposeProviderRef<QiitaItemsPaginationUseCase>;
+String _$qiitaItemsPaginationNotifierHash() =>
+    r'f72940291dec283e181133a393e0ec21f77d90f4';
 
-/// See also [QiitaItemsNotifier].
-@ProviderFor(QiitaItemsNotifier)
-final qiitaItemsNotifierProvider =
+/// See also [QiitaItemsPaginationNotifier].
+@ProviderFor(QiitaItemsPaginationNotifier)
+final qiitaItemsPaginationNotifierProvider =
     AutoDisposeAsyncNotifierProvider<
-      QiitaItemsNotifier,
-      List<QiitaItem>
+      QiitaItemsPaginationNotifier,
+      QiitaItemsPage
     >.internal(
-      QiitaItemsNotifier.new,
-      name: r'qiitaItemsNotifierProvider',
+      QiitaItemsPaginationNotifier.new,
+      name: r'qiitaItemsPaginationNotifierProvider',
       debugGetCreateSourceHash: const bool.fromEnvironment('dart.vm.product')
           ? null
-          : _$qiitaItemsNotifierHash,
+          : _$qiitaItemsPaginationNotifierHash,
       dependencies: null,
       allTransitiveDependencies: null,
     );
 
-typedef _$QiitaItemsNotifier = AutoDisposeAsyncNotifier<List<QiitaItem>>;
+typedef _$QiitaItemsPaginationNotifier =
+    AutoDisposeAsyncNotifier<QiitaItemsPage>;
 // ignore_for_file: type=lint
 // ignore_for_file: subtype_of_sealed_class, invalid_use_of_internal_member, invalid_use_of_visible_for_testing_member, deprecated_member_use_from_same_package

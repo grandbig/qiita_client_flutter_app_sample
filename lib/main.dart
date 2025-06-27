@@ -24,7 +24,7 @@ class MyApp extends StatelessWidget {
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.green),
         useMaterial3: true,
       ),
-      home: const QiitaItemListPage(),
+      home: const QiitaItemListPage(), // 無限スクロール機能付き
     );
   }
 }

@@ -1,13 +1,13 @@
 import 'package:dio/dio.dart';
 import 'package:qiita_client_app/features/qiita_items/data/datasource/qiita_api_client.dart';
-import 'package:qiita_client_app/features/qiita_items/domain/usecase/qiita_items_usecase.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 
-import 'package:qiita_client_app/features/qiita_items/domain/entity/qiita_item.dart';
+import 'package:qiita_client_app/features/qiita_items/domain/entity/qiita_items_page.dart';
 import 'package:qiita_client_app/features/qiita_items/domain/repository/qiita_item_repository.dart';
 import 'package:qiita_client_app/features/qiita_items/data/repository/qiita_item_repository_impl.dart';
+import 'package:qiita_client_app/features/qiita_items/domain/usecase/qiita_items_pagination_usecase.dart';
 
 part 'qiita_items_provider.g.dart';
 
@@ -28,22 +28,42 @@ QiitaApiClient qiitaApiClient(Ref ref) => QiitaApiClientImpl(ref.watch(dioProvid
 QiitaItemRepository qiitaItemRepository(Ref ref) => QiitaItemRepositoryImpl(ref.watch(qiitaApiClientProvider));
 
 @riverpod
-QiitaItemsUseCase qiitaItemsUseCase(Ref ref) => QiitaItemsUseCase(ref.watch(qiitaItemRepositoryProvider));
+QiitaItemsPaginationUseCase qiitaItemsPaginationUseCase(Ref ref) => QiitaItemsPaginationUseCase(ref.watch(qiitaItemRepositoryProvider));
 
 @riverpod
-class QiitaItemsNotifier extends _$QiitaItemsNotifier {
+class QiitaItemsPaginationNotifier extends _$QiitaItemsPaginationNotifier {
   @override
-  Future<List<QiitaItem>> build() async {
-    return _fetch();
+  Future<QiitaItemsPage> build() async {
+    final useCase = ref.read(qiitaItemsPaginationUseCaseProvider);
+    return useCase.loadInitialPage();
   }
 
-  Future<List<QiitaItem>> _fetch({int page = 1}) async {
-    final useCase = ref.read(qiitaItemsUseCaseProvider);
-    return useCase(page: page);
+  Future<void> loadMore() async {
+    final currentState = state.value;
+    if (currentState == null || !currentState.hasMore || currentState.isLoadingMore) {
+      return;
+    }
+
+    // ローディング状態を設定
+    state = AsyncData(currentState.copyWith(isLoadingMore: true));
+
+    try {
+      final useCase = ref.read(qiitaItemsPaginationUseCaseProvider);
+      final newPage = await useCase.loadNextPage(currentState);
+      state = AsyncData(newPage);
+    } catch (error, _) {
+      // エラー時はローディング状態を解除
+      state = AsyncData(currentState.copyWith(isLoadingMore: false));
+      // エラーを再スロー（必要に応じてエラー処理を追加）
+      rethrow;
+    }
   }
 
   Future<void> refresh() async {
     state = const AsyncLoading();
-    state = await AsyncValue.guard(_fetch);
+    state = await AsyncValue.guard(() async {
+      final useCase = ref.read(qiitaItemsPaginationUseCaseProvider);
+      return useCase.loadInitialPage();
+    });
   }
 }

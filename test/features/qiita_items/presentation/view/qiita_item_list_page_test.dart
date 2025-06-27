@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:qiita_client_app/features/qiita_items/domain/entity/qiita_item.dart';
+import 'package:qiita_client_app/features/qiita_items/domain/entity/qiita_items_page.dart';
 import 'package:qiita_client_app/features/qiita_items/presentation/provider/qiita_items_provider.dart';
 import 'package:qiita_client_app/features/qiita_items/presentation/view/qiita_item_list_page.dart';
 
@@ -25,7 +26,7 @@ void main() {
       await tester.pumpWidget(
         ProviderScope(
           overrides: [
-            qiitaItemsNotifierProvider.overrideWith(() => TestLoadingNotifier()),
+            qiitaItemsPaginationNotifierProvider.overrideWith(() => TestPaginationLoadingNotifier()),
           ],
           child: const MaterialApp(home: QiitaItemListPage()),
         ),
@@ -36,10 +37,17 @@ void main() {
     });
 
     testWidgets('displays items list when data is loaded', (tester) async {
+      final testPage = QiitaItemsPage(
+        items: testItems,
+        currentPage: 1,
+        hasMore: true,
+        isLoadingMore: false,
+      );
+
       await tester.pumpWidget(
         ProviderScope(
           overrides: [
-            qiitaItemsNotifierProvider.overrideWith(() => TestDataNotifier(testItems)),
+            qiitaItemsPaginationNotifierProvider.overrideWith(() => TestPaginationDataNotifier(testPage)),
           ],
           child: const MaterialApp(home: QiitaItemListPage()),
         ),
@@ -71,7 +79,7 @@ void main() {
       await tester.pumpWidget(
         ProviderScope(
           overrides: [
-            qiitaItemsNotifierProvider.overrideWith(() => TestErrorNotifier(errorMessage)),
+            qiitaItemsPaginationNotifierProvider.overrideWith(() => TestPaginationErrorNotifier(errorMessage)),
           ],
           child: const MaterialApp(home: QiitaItemListPage()),
         ),
@@ -79,17 +87,74 @@ void main() {
 
       await tester.pumpAndSettle();
       expect(find.text('エラーが発生しました：Exception: $errorMessage'), findsOneWidget);
-      expect(find.byType(CircularProgressIndicator), findsNothing);
-      expect(find.byType(ListTile), findsNothing);
+      expect(find.text('再試行'), findsOneWidget);
+      expect(find.byType(ElevatedButton), findsOneWidget);
+    });
+
+    testWidgets('displays loading more indicator when loading more items', (tester) async {
+      final testPage = QiitaItemsPage(
+        items: testItems,
+        currentPage: 1,
+        hasMore: true,
+        isLoadingMore: true, // ローディング中
+      );
+
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            qiitaItemsPaginationNotifierProvider.overrideWith(() => TestPaginationDataNotifier(testPage)),
+          ],
+          child: const MaterialApp(home: QiitaItemListPage()),
+        ),
+      );
+
+      await tester.pump();
+      
+      // アイテムが表示されている
+      expect(find.byType(ListTile), findsNWidgets(2));
+      
+      // ローディングインジケーターも表示されている
+      expect(find.byType(CircularProgressIndicator), findsOneWidget);
+    });
+
+    testWidgets('displays end message when no more items', (tester) async {
+      final testPage = QiitaItemsPage(
+        items: testItems,
+        currentPage: 2,
+        hasMore: false, // 最後のページ
+        isLoadingMore: false,
+      );
+
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            qiitaItemsPaginationNotifierProvider.overrideWith(() => TestPaginationDataNotifier(testPage)),
+          ],
+          child: const MaterialApp(home: QiitaItemListPage()),
+        ),
+      );
+
+      await tester.pumpAndSettle();
+      
+      // アイテムが表示されている
+      expect(find.byType(ListTile), findsNWidgets(2));
+      
+      // 終了メッセージが表示されている
+      expect(find.text('全ての記事を読み込みました'), findsOneWidget);
     });
 
     testWidgets('calls refresh when pull-to-refresh is triggered', (tester) async {
-      final refreshableNotifier = TestRefreshableNotifier(testItems);
+      final refreshableNotifier = TestPaginationRefreshableNotifier(QiitaItemsPage(
+        items: testItems,
+        currentPage: 1,
+        hasMore: true,
+        isLoadingMore: false,
+      ));
       
       await tester.pumpWidget(
         ProviderScope(
           overrides: [
-            qiitaItemsNotifierProvider.overrideWith(() => refreshableNotifier),
+            qiitaItemsPaginationNotifierProvider.overrideWith(() => refreshableNotifier),
           ],
           child: const MaterialApp(home: QiitaItemListPage()),
         ),
@@ -108,51 +173,232 @@ void main() {
       // refresh()が呼ばれたことを確認
       expect(refreshableNotifier.refreshCallCount, 1);
     });
+
+    testWidgets('triggers loadMore when scrolling past 90%', (tester) async {
+      final loadMoreNotifier = TestPaginationLoadMoreNotifier(QiitaItemsPage(
+        items: List.generate(20, (i) => QiitaItem(
+          title: 'Article $i',
+          likesCount: i,
+          userId: 'user$i',
+        )),
+        currentPage: 1,
+        hasMore: true,
+        isLoadingMore: false,
+      ));
+      
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            qiitaItemsPaginationNotifierProvider.overrideWith(() => loadMoreNotifier),
+          ],
+          child: const MaterialApp(home: QiitaItemListPage()),
+        ),
+      );
+
+      await tester.pumpAndSettle();
+      
+      // 初期状態でloadMoreが呼ばれていないことを確認
+      expect(loadMoreNotifier.loadMoreCallCount, 0);
+      
+      // 90%以上スクロールしてloadMoreをトリガー
+      await tester.drag(find.byType(ListView), const Offset(0, -2000));
+      await tester.pumpAndSettle();
+      
+      // loadMoreが呼ばれたことを確認
+      expect(loadMoreNotifier.loadMoreCallCount, greaterThan(0));
+    });
+
+    testWidgets('retry button calls refresh on error', (tester) async {
+      const errorMessage = 'Network error';
+      final errorNotifier = TestPaginationErrorNotifier(errorMessage);
+      
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            qiitaItemsPaginationNotifierProvider.overrideWith(() => errorNotifier),
+          ],
+          child: const MaterialApp(home: QiitaItemListPage()),
+        ),
+      );
+
+      await tester.pumpAndSettle();
+      
+      // エラー状態が表示されることを確認
+      expect(find.text('エラーが発生しました：Exception: $errorMessage'), findsOneWidget);
+      expect(find.text('再試行'), findsOneWidget);
+      
+      // 初期状態でrefreshが呼ばれていないことを確認
+      expect(errorNotifier.refreshCallCount, 0);
+      
+      // 再試行ボタンをタップ
+      await tester.tap(find.text('再試行'));
+      await tester.pumpAndSettle();
+      
+      // refreshが呼ばれたことを確認
+      expect(errorNotifier.refreshCallCount, 1);
+    });
+
+    testWidgets('displays empty list correctly', (tester) async {
+      final emptyPage = QiitaItemsPage(
+        items: const [],
+        currentPage: 1,
+        hasMore: false,
+        isLoadingMore: false,
+      );
+
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            qiitaItemsPaginationNotifierProvider.overrideWith(() => TestPaginationDataNotifier(emptyPage)),
+          ],
+          child: const MaterialApp(home: QiitaItemListPage()),
+        ),
+      );
+
+      await tester.pumpAndSettle();
+      
+      // アイテムが表示されていない
+      expect(find.byType(ListTile), findsNothing);
+      
+      // 終了メッセージが表示されている
+      expect(find.text('全ての記事を読み込みました'), findsOneWidget);
+    });
+
+    testWidgets('separator logic works correctly with multiple items', (tester) async {
+      const testItems = [
+        QiitaItem(title: 'Article 1', likesCount: 1, userId: 'user1'),
+        QiitaItem(title: 'Article 2', likesCount: 2, userId: 'user2'),
+        QiitaItem(title: 'Article 3', likesCount: 3, userId: 'user3'),
+      ];
+
+      final testPage = QiitaItemsPage(
+        items: testItems,
+        currentPage: 1,
+        hasMore: false,
+        isLoadingMore: false,
+      );
+
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            qiitaItemsPaginationNotifierProvider.overrideWith(() => TestPaginationDataNotifier(testPage)),
+          ],
+          child: const MaterialApp(home: QiitaItemListPage()),
+        ),
+      );
+
+      await tester.pumpAndSettle();
+      
+      // 3つのアイテムが表示されている
+      expect(find.byType(ListTile), findsNWidgets(3));
+      
+      // 2つのDivider（アイテム間のセパレータ）が表示されている
+      // 最後のアイテムの後にはセパレータはない
+      expect(find.byType(Divider), findsNWidgets(2));
+      
+      // 終了メッセージも表示されている
+      expect(find.text('全ての記事を読み込みました'), findsOneWidget);
+    });
+
+    testWidgets('displays correct item count when hasMore is true with no loading', (tester) async {
+      const testItems = [
+        QiitaItem(title: 'Article 1', likesCount: 1, userId: 'user1'),
+        QiitaItem(title: 'Article 2', likesCount: 2, userId: 'user2'),
+      ];
+
+      final testPage = QiitaItemsPage(
+        items: testItems,
+        currentPage: 1,
+        hasMore: true, // まだページがある
+        isLoadingMore: false, // ローディング中ではない
+      );
+
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            qiitaItemsPaginationNotifierProvider.overrideWith(() => TestPaginationDataNotifier(testPage)),
+          ],
+          child: const MaterialApp(home: QiitaItemListPage()),
+        ),
+      );
+
+      await tester.pumpAndSettle();
+      
+      // 2つのアイテムのみ表示（ローディングや終了メッセージなし）
+      expect(find.byType(ListTile), findsNWidgets(2));
+      expect(find.byType(CircularProgressIndicator), findsNothing);
+      expect(find.text('全ての記事を読み込みました'), findsNothing);
+    });
   });
 }
 
-class TestLoadingNotifier extends QiitaItemsNotifier {
+// 追加のテスト用Notifierクラス
+class TestPaginationLoadMoreNotifier extends QiitaItemsPaginationNotifier {
+  TestPaginationLoadMoreNotifier(this.page);
+  final QiitaItemsPage page;
+  int loadMoreCallCount = 0;
+
   @override
-  Future<List<QiitaItem>> build() async {
+  Future<QiitaItemsPage> build() async => page;
+
+  @override
+  Future<void> loadMore() async {
+    loadMoreCallCount++;
+    // テスト用のシンプルなloadMore実装（providerの依存関係を避ける）
+  }
+}
+
+class TestPaginationLoadingNotifier extends QiitaItemsPaginationNotifier {
+  @override
+  Future<QiitaItemsPage> build() async {
     // AsyncLoading状態を維持するために完了しないFutureを返す
-    return Completer<List<QiitaItem>>().future;
+    return Completer<QiitaItemsPage>().future;
   }
 }
 
-class TestDataNotifier extends QiitaItemsNotifier {
-  TestDataNotifier(this.items);
-  final List<QiitaItem> items;
+class TestPaginationDataNotifier extends QiitaItemsPaginationNotifier {
+  TestPaginationDataNotifier(this.page);
+  final QiitaItemsPage page;
 
   @override
-  Future<List<QiitaItem>> build() async {
-    return items;
+  Future<QiitaItemsPage> build() async {
+    return page;
   }
 }
 
-class TestErrorNotifier extends QiitaItemsNotifier {
-  TestErrorNotifier(this.errorMessage);
+class TestPaginationErrorNotifier extends QiitaItemsPaginationNotifier {
+  TestPaginationErrorNotifier(this.errorMessage);
   final String errorMessage;
-
-  @override
-  Future<List<QiitaItem>> build() async {
-    throw Exception(errorMessage);
-  }
-}
-
-class TestRefreshableNotifier extends QiitaItemsNotifier {
-  TestRefreshableNotifier(this.items);
-  final List<QiitaItem> items;
   int refreshCallCount = 0;
 
   @override
-  Future<List<QiitaItem>> build() async {
-    return items;
+  Future<QiitaItemsPage> build() async {
+    throw Exception(errorMessage);
   }
 
   @override
   Future<void> refresh() async {
     refreshCallCount++;
     state = const AsyncLoading();
-    state = await AsyncValue.guard(() async => items);
+    // エラーを維持
+    state = AsyncError(Exception(errorMessage), StackTrace.current);
+  }
+}
+
+class TestPaginationRefreshableNotifier extends QiitaItemsPaginationNotifier {
+  TestPaginationRefreshableNotifier(this.page);
+  final QiitaItemsPage page;
+  int refreshCallCount = 0;
+
+  @override
+  Future<QiitaItemsPage> build() async {
+    return page;
+  }
+
+  @override
+  Future<void> refresh() async {
+    refreshCallCount++;
+    state = const AsyncLoading();
+    state = await AsyncValue.guard(() async => page);
   }
 }
