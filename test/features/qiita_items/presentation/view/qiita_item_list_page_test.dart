@@ -32,8 +32,20 @@ void main() {
         ),
       );
 
-      expect(find.byType(CircularProgressIndicator), findsOneWidget);
-      expect(find.text('Qiita 記事一覧'), findsOneWidget);
+      // 初期読み込み用のCircularProgressIndicatorが中央に表示されることを確認
+      final centerFinder = find.byWidgetPredicate(
+        (widget) => widget is Center && widget.child is CircularProgressIndicator,
+      );
+      expect(centerFinder, findsOneWidget);
+      
+      // AppBarのタイトルが正しく表示されることを確認
+      final appBarFinder = find.byWidgetPredicate(
+        (widget) => widget is AppBar,
+      );
+      expect(appBarFinder, findsOneWidget);
+      
+      final appBar = tester.widget<AppBar>(appBarFinder);
+      expect((appBar.title as Text).data, 'Qiita 記事一覧');
     });
 
     testWidgets('displays items list when data is loaded', (tester) async {
@@ -86,9 +98,37 @@ void main() {
       );
 
       await tester.pumpAndSettle();
-      expect(find.text('エラーが発生しました：Exception: $errorMessage'), findsOneWidget);
-      expect(find.text('再試行'), findsOneWidget);
-      expect(find.byType(ElevatedButton), findsOneWidget);
+      
+      // エラー画面の特定の構造を検証（Center > Column > [Text, SizedBox, ElevatedButton]）
+      final errorCenterFinder = find.byWidgetPredicate(
+        (widget) => widget is Center &&
+                     widget.child is Column &&
+                     (widget.child as Column).mainAxisAlignment == MainAxisAlignment.center,
+      );
+      expect(errorCenterFinder, findsOneWidget);
+      
+      // Columnの中身を詳細に検証
+      final centerWidget = tester.widget<Center>(errorCenterFinder);
+      final columnWidget = centerWidget.child as Column;
+      expect(columnWidget.children, hasLength(3));
+      
+      // 1番目: エラーメッセージのText
+      expect(columnWidget.children[0], isA<Text>());
+      final errorText = columnWidget.children[0] as Text;
+      expect(errorText.data, 'エラーが発生しました：Exception: $errorMessage');
+      
+      // 2番目: SizedBox（間隔用）
+      expect(columnWidget.children[1], isA<SizedBox>());
+      
+      // 3番目: 再試行ボタン
+      expect(columnWidget.children[2], isA<ElevatedButton>());
+      final elevatedButton = columnWidget.children[2] as ElevatedButton;
+      expect((elevatedButton.child as Text).data, '再試行');
+      
+      // エラー状態ではListViewは表示されない
+      expect(find.byType(ListView), findsNothing);
+      expect(find.byType(RefreshIndicator), findsNothing);
+      expect(find.byType(ListTile), findsNothing);
     });
 
     testWidgets('displays loading more indicator when loading more items', (tester) async {
@@ -113,7 +153,15 @@ void main() {
       // アイテムが表示されている
       expect(find.byType(ListTile), findsNWidgets(2));
       
-      // ローディングインジケーターも表示されている
+      // 追加読み込み用のCircularProgressIndicator（Paddingでラップされている）が表示されている
+      final loadingMoreFinder = find.byWidgetPredicate(
+        (widget) => widget is Padding && 
+                     widget.child is Center &&
+                     (widget.child as Center).child is CircularProgressIndicator,
+      );
+      expect(loadingMoreFinder, findsOneWidget);
+      
+      // CircularProgressIndicatorは追加読み込み用のみが存在することを確認（合計1個）
       expect(find.byType(CircularProgressIndicator), findsOneWidget);
     });
 
@@ -139,8 +187,18 @@ void main() {
       // アイテムが表示されている
       expect(find.byType(ListTile), findsNWidgets(2));
       
-      // 終了メッセージが表示されている
-      expect(find.text('全ての記事を読み込みました'), findsOneWidget);
+      // 終了メッセージが特定の構造で表示されている（Paddingでラップされている）
+      final endMessageFinder = find.byWidgetPredicate(
+        (widget) => widget is Padding && 
+                     widget.child is Center &&
+                     (widget.child as Center).child is Text &&
+                     ((widget.child as Center).child as Text).data == '全ての記事を読み込みました',
+      );
+      expect(endMessageFinder, findsOneWidget);
+      
+      // Textのスタイルも確認（重要な視覚的特徴のみ）
+      final textWidget = tester.widget<Text>(find.text('全ての記事を読み込みました'));
+      expect(textWidget.style?.color, Colors.grey); // グレー色は重要なUX要素
     });
 
     testWidgets('calls refresh when pull-to-refresh is triggered', (tester) async {
@@ -176,7 +234,7 @@ void main() {
 
     testWidgets('triggers loadMore when scrolling past 90%', (tester) async {
       final loadMoreNotifier = TestPaginationLoadMoreNotifier(QiitaItemsPage(
-        items: List.generate(20, (i) => QiitaItem(
+        items: List.generate(30, (i) => QiitaItem(
           title: 'Article $i',
           likesCount: i,
           userId: 'user$i',
@@ -200,11 +258,24 @@ void main() {
       // 初期状態でloadMoreが呼ばれていないことを確認
       expect(loadMoreNotifier.loadMoreCallCount, 0);
       
-      // 90%以上スクロールしてloadMoreをトリガー
-      await tester.drag(find.byType(ListView), const Offset(0, -2000));
-      await tester.pumpAndSettle();
+      // スクロール可能領域を取得
+      final scrollable = tester.state<ScrollableState>(find.byType(Scrollable));
+      final maxScrollExtent = scrollable.position.maxScrollExtent;
       
-      // loadMoreが呼ばれたことを確認
+      // 89%の位置までスクロール（90%未満）
+      final scrollTo89Percent = maxScrollExtent * 0.89;
+      await tester.drag(find.byType(ListView), Offset(0, -scrollTo89Percent));
+      await tester.pump();
+      
+      // 89%では loadMoreが呼ばれていないことを確認
+      expect(loadMoreNotifier.loadMoreCallCount, 0);
+      
+      // 90%の位置までスクロール（90%ちょうど）
+      final additionalScroll = maxScrollExtent * 0.01; // 89% + 1% = 90%
+      await tester.drag(find.byType(ListView), Offset(0, -additionalScroll));
+      await tester.pump();
+      
+      // 90%でloadMoreが呼ばれることを確認
       expect(loadMoreNotifier.loadMoreCallCount, greaterThan(0));
     });
 
@@ -293,8 +364,27 @@ void main() {
       expect(find.byType(ListTile), findsNWidgets(3));
       
       // 2つのDivider（アイテム間のセパレータ）が表示されている
-      // 最後のアイテムの後にはセパレータはない
       expect(find.byType(Divider), findsNWidgets(2));
+      
+      // 最後のListTileの直後にDividerがないことを具体的に検証
+      // ListTileを取得
+      final listTiles = find.byType(ListTile);
+      expect(listTiles, findsNWidgets(3));
+      
+      // 各ListTileの位置を確認し、最後のListTileの後にDividerがないことを検証
+      final lastListTileRect = tester.getRect(listTiles.last);
+      
+      // 最後のListTileより下の位置にあるDividerがないことを確認
+      final dividersAfterLastItem = find.byWidgetPredicate((widget) {
+        if (widget is! Divider) return false;
+        try {
+          final dividerRect = tester.getRect(find.byWidget(widget));
+          return dividerRect.top > lastListTileRect.bottom;
+        } catch (_) {
+          return false;
+        }
+      });
+      expect(dividersAfterLastItem, findsNothing);
       
       // 終了メッセージも表示されている
       expect(find.text('全ての記事を読み込みました'), findsOneWidget);
